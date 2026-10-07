@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Linking } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, Linking, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { useApp } from '../../context/AppContext';
 import { PriorityBadge, TicketStatusBadge } from '../common/Badge';
@@ -16,25 +16,47 @@ import {
   Clock,
   AlertCircle,
   Radio,
-  CheckCircle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Hospital,
+  Cpu,
+  Package,
+  ArrowLeft,
+  Send,
+  Camera,
+  MapPin,
+  User,
+  ShieldCheck,
+  Navigation,
+  ExternalLink,
+  Sparkles,
+  RotateCcw,
 } from 'lucide-react-native';
 
 export const JobDetailView: React.FC = () => {
   const {
     tickets,
     engineers,
+    customers,
     selectedTicketId,
     updateTicketStatus,
+    addTicketNote,
     acceptRequest,
     passRequest,
     postponeRequest,
     setCurrentScreen,
     isOffline,
-    toggleOfflineMode,
   } = useApp();
 
   const currentEngineer = engineers[0];
   const [notesInput, setNotesInput] = useState('');
+
+  // Collapsible dropdown states
+  const [showLocationDetails, setShowLocationDetails] = useState(false);
+  const [showSymptomDetails, setShowSymptomDetails] = useState(true);
+  const [showBroadcastPanel, setShowBroadcastPanel] = useState(false);
+  const [showLiveMap, setShowLiveMap] = useState(true);
 
   // Modal states for Pass and Postpone
   const [showPassModal, setShowPassModal] = useState(false);
@@ -50,21 +72,59 @@ export const JobDetailView: React.FC = () => {
 
   if (!currentTicket) {
     return (
-      <View className="flex-1 p-8 items-center justify-center">
-        <Text className="text-slate-500 text-sm">No job selected.</Text>
+      <View className="flex-1 p-8 items-center justify-center bg-[#f8fafc]">
+        <Text className="text-slate-600 font-bold text-base">No active job selected.</Text>
         <Pressable
           onPress={() => setCurrentScreen('my-jobs')}
-          className="mt-4 px-4 py-2 bg-emerald-700 rounded-xl"
+          className="mt-4 px-6 py-3 bg-[#007b8a] rounded-xl"
         >
-          <Text className="text-white text-xs font-bold">Return to Job Board</Text>
+          <Text className="text-white text-xs font-bold">Return to Service Board</Text>
         </Pressable>
       </View>
     );
   }
 
-  const handleStatusUpdate = (newStatus: any, customNote?: string) => {
-    updateTicketStatus(currentTicket.id, newStatus, customNote || notesInput);
-    setNotesInput('');
+  // Find customer facility address
+  const matchedCustomer = customers.find((c) => c.id === currentTicket.customerId);
+  const destinationQuery = matchedCustomer
+    ? `${matchedCustomer.name}, ${matchedCustomer.address}, ${matchedCustomer.city}`
+    : `${currentTicket.customerName}, ${currentTicket.siteName}`;
+
+  const googleMapEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(destinationQuery)}&hl=en&z=15&output=embed`;
+  const googleMapsDirectionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destinationQuery)}`;
+
+  const handleOpenGoogleMapsNav = () => {
+    Linking.openURL(googleMapsDirectionsUrl).catch((err) => {
+      console.warn('Cannot open maps:', err);
+    });
+  };
+
+  // Execution Stage Handlers - Fully Clickable & Seamless Transition
+  const handleStageClick = (targetStage: 'ACCEPTED' | 'EN_ROUTE' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED') => {
+    if (targetStage === 'CLOSED') {
+      setCurrentScreen('close-job');
+      return;
+    }
+
+    let note = '';
+    if (targetStage === 'ACCEPTED') {
+      if (currentTicket.status !== 'RAISED' && currentTicket.status !== 'ASSIGNED') return;
+      note = 'Service call accepted from beginning. Ready for departure.';
+      acceptRequest(currentTicket.id, currentEngineer.id, note);
+      return;
+    } else if (targetStage === 'EN_ROUTE') {
+      note = 'Field specialist departed and is en route to site via corridor navigation.';
+    } else if (targetStage === 'IN_PROGRESS') {
+      note = 'Specialist arrived on-site at Cath Lab / OT. Calibration and diagnostic routines active.';
+    } else if (targetStage === 'RESOLVED') {
+      note = 'On-site service and calibration completed. Handover OTP requested from customer.';
+    }
+
+    updateTicketStatus(currentTicket.id, targetStage, note);
+  };
+
+  const handleRestartLifecycle = () => {
+    handleStageClick('ACCEPTED');
   };
 
   const handleConfirmPass = () => {
@@ -87,448 +147,380 @@ export const JobDetailView: React.FC = () => {
   const hasPassed = (currentTicket.passedEngineerIds || []).includes(currentEngineer.id);
 
   const quickDiagnosticNotes = [
-    'Completed visual & resistance checks',
-    'Replaced faulty sensor component',
-    'Fluidics & pressure calibration passed',
-    'System operational — ready for customer OTP signoff',
+    'Completed checks',
+    'Transducer replaced',
+    'Calibration passed',
+    'Ready for handover',
   ];
 
-  return (
-    <ScrollView className="flex-1 bg-slate-50 p-4 space-y-6" keyboardShouldPersistTaps="handled">
-      {/* Top Banner - Topic Only */}
-      <View className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex-row items-center justify-between">
-        <View className="flex-1 pr-2">
-          <Text className="text-xl font-black text-slate-900 tracking-tight">
-            Service Request & Work Order Details
-          </Text>
-        </View>
+  // Stage states for Stepper
+  const status = currentTicket.status;
+  const isEnRouteActive = status === 'EN_ROUTE';
+  const isInProgressActive = status === 'IN_PROGRESS';
+  const isResolvedActive = status === 'RESOLVED';
+  const isClosedActive = status === 'CLOSED';
 
+  const isEnRouteCompleted = isInProgressActive || isResolvedActive || isClosedActive;
+  const isInProgressCompleted = isResolvedActive || isClosedActive;
+  const isResolvedCompleted = isClosedActive;
+
+  return (
+    <ScrollView
+      className="flex-1 bg-[#f8fafc]"
+      contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 16 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* ── Top Header Navigation Bar ───────────────────────────────────── */}
+      <View className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-xs flex-row items-center justify-between">
         <Pressable
           onPress={() => setCurrentScreen('my-jobs')}
-          className="px-3 py-1.5 bg-slate-100 rounded-xl"
+          className="flex-row items-center gap-1.5 px-3 py-1.5 bg-slate-100 active:bg-slate-200 rounded-xl"
         >
-          <Text className="text-xs font-bold text-slate-600">← Back</Text>
+          <ArrowLeft size={15} color="#334155" />
+          <Text className="text-xs font-bold text-slate-700">Back</Text>
         </Pressable>
+
+        <View className="flex-row items-center gap-2">
+          <Text className="font-mono text-xs font-bold text-[#007b8a] bg-[#e6f4f6] px-2.5 py-1 rounded-lg">
+            {currentTicket.ticketNumber}
+          </Text>
+          <TicketStatusBadge status={currentTicket.status} isOfflineQueued={currentTicket.isOfflineQueued} />
+        </View>
       </View>
 
-      {/* Ticket Overview Card */}
-      <View className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs">
-        <View className="space-y-2">
-          <View className="flex-row items-center gap-2 flex-wrap">
-            <Text className="font-mono text-base font-black text-emerald-800">
-              {currentTicket.ticketNumber}
+      {/* ── Core Hospital Work Order Card ─────────────────────────────── */}
+      <View className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
+        {/* Row 1: Hospital Name & Quick Call Action */}
+        <View className="flex-row items-start justify-between gap-3 pb-3 border-b border-slate-100">
+          <View className="flex-1">
+            <View className="flex-row items-center gap-2">
+              <PriorityBadge priority={currentTicket.priority} />
+            </View>
+            <Text className="text-xl font-black text-[#0f2930] mt-1.5 leading-snug">
+              {currentTicket.customerName}
             </Text>
-            <PriorityBadge priority={currentTicket.priority} />
-            <TicketStatusBadge status={currentTicket.status} isOfflineQueued={currentTicket.isOfflineQueued} />
+            <Text className="text-xs font-semibold text-slate-500 mt-0.5">
+              {currentTicket.siteName}
+            </Text>
           </View>
-          <Text className="text-lg font-bold text-slate-900">{currentTicket.machineModel}</Text>
-          <Text className="text-xs text-blue-700 font-mono font-bold">
-            SN: {currentTicket.machineSerial}
-          </Text>
+
+          <Pressable
+            onPress={() => Linking.openURL(`tel:${currentTicket.contactPhone}`)}
+            className="min-h-[42px] px-3.5 py-2 bg-[#007b8a] active:bg-[#00606b] rounded-xl flex-row items-center gap-1.5 shadow-xs"
+          >
+            <Phone size={14} color="#ffffff" />
+            <Text className="text-white text-xs font-bold">Call Lead</Text>
+          </Pressable>
         </View>
 
-        {/* Customer & Location */}
-        <View className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
-          <View className="flex-row items-center justify-between">
-            <View>
-              <Text className="text-xs font-bold text-slate-900">{currentTicket.customerName}</Text>
-              <Text className="text-[11px] text-slate-500">{currentTicket.siteName}</Text>
+        {/* Row 2: Machine Model Summary */}
+        <View className="flex-row items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/60">
+          <View className="flex-row items-center gap-2 flex-1 pr-2">
+            <View className="w-8 h-8 rounded-lg bg-[#e6f4f6] items-center justify-center border border-[#007b8a]/20">
+              <Cpu size={16} color="#007b8a" />
             </View>
+            <View className="flex-1">
+              <Text className="text-xs font-bold text-[#0f2930]">{currentTicket.machineModel}</Text>
+              <Text className="text-[11px] text-slate-500 font-mono">SN: {currentTicket.machineSerial}</Text>
+            </View>
+          </View>
 
+          <View className="px-2.5 py-1 bg-[#e6f4f6] rounded-lg border border-[#007b8a]/20">
+            <Text className="text-[10px] font-bold text-[#007b8a]">Meril OEM</Text>
+          </View>
+        </View>
+
+        {/* ── GOOGLE MAPS INTEGRATION: Live Site & GPS Navigation ───────── */}
+        <View className="rounded-xl border border-slate-200/80 overflow-hidden bg-slate-50">
+          <View className="p-3 bg-white border-b border-slate-100 flex-row items-center justify-between">
+            <View className="flex-row items-center gap-2">
+              <MapPin size={15} color="#007b8a" />
+              <View>
+                <Text className="text-xs font-bold text-[#0f2930]">
+                  Google Maps Site Navigation
+                </Text>
+              </View>
+            </View>
             <Pressable
-              onPress={() => Linking.openURL(`tel:${currentTicket.contactPhone}`)}
-              className="flex-row items-center gap-1 px-3 py-1.5 bg-emerald-600 rounded-xl"
+              onPress={() => setShowLiveMap(!showLiveMap)}
+              className="px-2.5 py-1 bg-slate-100 rounded-lg"
             >
-              <Phone size={14} color="#ffffff" />
-              <Text className="text-white text-xs font-bold">Call</Text>
+              <Text className="text-[11px] font-bold text-[#007b8a]">
+                {showLiveMap ? 'Hide Map' : 'Show Map'}
+              </Text>
             </Pressable>
           </View>
 
-          <Text className="text-xs font-bold text-slate-800">Contact: {currentTicket.contactName}</Text>
-        </View>
+          {showLiveMap && (
+            <View className="p-3 space-y-3 bg-white">
+              <View className="h-64 w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
+                {Platform.OS === 'web' ? (
+                  // @ts-ignore
+                  <iframe
+                    title="Google Maps Engineer Route"
+                    src={googleMapEmbedUrl}
+                    style={{ width: '100%', height: '100%', border: 'none' }}
+                    allowFullScreen
+                    loading="lazy"
+                  />
+                ) : (
+                  <Image
+                    source={{
+                      uri: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?w=800&auto=format&fit=crop&q=80',
+                    }}
+                    style={{ width: '100%', height: '100%' }}
+                    contentFit="cover"
+                  />
+                )}
+              </View>
 
-        {/* Fault Description & Photos */}
-        <View className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-          <Text className="text-xs font-bold text-slate-400 uppercase">Reported Breakdown Symptoms</Text>
-          <Text className="text-xs text-slate-800 font-medium leading-relaxed">
-            {currentTicket.faultDescription}
-          </Text>
+              <View className="flex-row items-center justify-between pt-1 gap-2">
+                <View className="flex-1">
+                  <Text className="text-xs font-bold text-[#0f2930]">
+                    📍 {currentTicket.siteName || 'Apollo Cath Lab 2'}
+                  </Text>
+                  <Text className="text-[11px] text-slate-500 mt-0.5">
+                    Est. Transit: ~20 mins • 3.4 km
+                  </Text>
+                </View>
 
-          {hasPassed && (
-            <View className="p-2.5 bg-slate-200 border border-slate-300 rounded-xl mt-2 flex-row items-center gap-2">
-              <AlertCircle size={14} color="#475569" />
-              <Text className="text-xs text-slate-700 font-medium flex-1">
-                You passed on this request. It remains open in the pool for other engineers or Admin dispatch.
-              </Text>
+                <Pressable
+                  onPress={handleOpenGoogleMapsNav}
+                  className="px-3.5 py-2.5 bg-[#007b8a] active:bg-[#00606b] rounded-xl flex-row items-center gap-1.5 shadow-xs"
+                >
+                  <Navigation size={14} color="#ffffff" />
+                  <Text className="text-white text-xs font-bold">Navigate 🧭</Text>
+                </Pressable>
+              </View>
             </View>
           )}
+        </View>
 
-          {currentTicket.postponeReason && (
-            <View className="p-2.5 bg-amber-100 border border-amber-300 rounded-xl mt-2">
-              <Text className="text-xs font-bold text-amber-900">Postponed:</Text>
-              <Text className="text-xs text-amber-800 mt-0.5">{currentTicket.postponeReason}</Text>
-              {currentTicket.postponedUntil && (
-                <Text className="text-[11px] text-amber-700 font-semibold mt-0.5">
-                  Target Time: {currentTicket.postponedUntil}
-                </Text>
+        {/* ── Collapsible Section: Breakdown Symptoms ──────────── */}
+        <View className="rounded-xl border border-slate-200/80 overflow-hidden bg-slate-50">
+          <Pressable
+            onPress={() => setShowSymptomDetails(!showSymptomDetails)}
+            className="flex-row items-center justify-between px-3.5 py-2.5 bg-slate-100/70 active:bg-slate-200/60"
+          >
+            <View className="flex-row items-center gap-2">
+              <AlertCircle size={15} color="#d97706" />
+              <Text className="text-xs font-bold text-[#0f2930]">
+                Symptom Notes & Media
+              </Text>
+            </View>
+            <View className="flex-row items-center gap-1">
+              <Text className="text-[11px] font-semibold text-slate-500">
+                {showSymptomDetails ? 'Hide' : 'Expand'}
+              </Text>
+              {showSymptomDetails ? (
+                <ChevronUp size={15} color="#64748b" />
+              ) : (
+                <ChevronDown size={15} color="#64748b" />
+              )}
+            </View>
+          </Pressable>
+
+          {showSymptomDetails && (
+            <View className="p-3.5 space-y-3 bg-white border-t border-slate-200">
+              <Text className="text-xs text-slate-800 font-medium leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-200/60">
+                {currentTicket.faultDescription || 'No detailed breakdown description provided.'}
+              </Text>
+
+              {currentTicket.photos && currentTicket.photos.length > 0 && (
+                <View className="flex-row gap-2.5 pt-1">
+                  {currentTicket.photos.map((p, i) => (
+                    <Image
+                      key={i}
+                      source={{ uri: p }}
+                      style={{ width: 72, height: 72, borderRadius: 8 }}
+                      contentFit="cover"
+                    />
+                  ))}
+                </View>
               )}
             </View>
           )}
-
-          {currentTicket.photos.length > 0 && (
-            <View className="space-y-1.5 pt-2 border-t border-slate-200">
-              <Text className="text-[11px] font-bold text-slate-400 uppercase">Customer Photos</Text>
-              <View className="flex-row gap-2 flex-wrap">
-                {currentTicket.photos.map((p, i) => (
-                  <Image
-                    key={i}
-                    source={{ uri: p }}
-                    style={{ width: 64, height: 64, borderRadius: 8 }}
-                    contentFit="cover"
-                  />
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* Product Ordering Direct Callout */}
-          <Pressable
-            onPress={() => setCurrentScreen('product-ordering')}
-            className="mt-3 p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex-row items-center justify-between"
-          >
-            <View className="flex-row items-center gap-2 flex-1 pr-2">
-              <Text className="text-base">🧪</Text>
-              <View className="flex-1">
-                <Text className="text-xs font-bold text-emerald-950">Order Reagents, Parts & Machines</Text>
-                <Text className="text-[10px] text-emerald-700 font-medium">Auto-linked to {currentTicket.ticketNumber} for availability alerts</Text>
-              </View>
-            </View>
-            <View className="px-2.5 py-1 bg-emerald-700 rounded-lg">
-              <Text className="text-white text-[11px] font-bold">Order Now</Text>
-            </View>
-          </Pressable>
         </View>
+
+        {/* Parts Order Direct Shortcut */}
+        <Pressable
+          onPress={() => setCurrentScreen('product-ordering')}
+          className="p-3 bg-[#e6f4f6] border border-[#007b8a]/20 rounded-xl flex-row items-center justify-between"
+        >
+          <View className="flex-row items-center gap-2.5 flex-1 pr-2">
+            <Package size={16} color="#007b8a" />
+            <Text className="text-xs font-bold text-[#0f2930]">Order Replacement Parts</Text>
+          </View>
+          <Text className="text-xs font-bold text-[#007b8a]">Order Desk →</Text>
+        </Pressable>
       </View>
 
-      {/* Engineer Request Decision Panel (Accept / Pass / Postpone) */}
+      {/* ── Open Pool / Claim Decision Bar ──────────────────────────────── */}
       {(isOpenPoolItem || isAssignedToMe || isAccepted) && (
-        <View className="bg-white p-5 rounded-2xl border border-slate-200 space-y-3 shadow-xs">
+        <View className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
           <Text className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Engineer Decision Panel
+            Work Order Claim & Action
           </Text>
 
           <View className="flex-row gap-2">
-            {/* Accept & Claim */}
             <Pressable
-              onPress={() => acceptRequest(currentTicket.id, currentEngineer.id)}
-              disabled={isAccepted && isAssignedToMe}
-              className={`flex-1 py-3 px-2 rounded-xl flex-row items-center justify-center gap-1.5 ${
-                isAccepted && isAssignedToMe ? 'bg-emerald-100 border border-emerald-300' : 'bg-emerald-700'
+              onPress={() => handleStageClick('ACCEPTED')}
+              className={`flex-1 min-h-[46px] py-2.5 px-3 rounded-xl flex-row items-center justify-center gap-1.5 ${
+                isAccepted
+                  ? 'bg-[#e6f4f6] border border-[#007b8a]/30'
+                  : 'bg-[#007b8a] active:bg-[#00606b] shadow-xs'
               }`}
             >
-              <Check size={16} color={isAccepted && isAssignedToMe ? '#047857' : '#ffffff'} />
-              <Text className={`text-xs font-bold ${isAccepted && isAssignedToMe ? 'text-emerald-800' : 'text-white'}`}>
-                {isAccepted && isAssignedToMe ? 'Claimed & Accepted' : 'Accept & Claim'}
+              <Check size={16} color={isAccepted ? '#007b8a' : '#ffffff'} />
+              <Text className={`text-xs font-bold ${isAccepted ? 'text-[#007b8a]' : 'text-white'}`}>
+                {isAccepted ? 'Accepted' : 'Accept & Claim Job'}
               </Text>
             </Pressable>
 
-            {/* Pass Request */}
             <Pressable
               onPress={() => setShowPassModal(true)}
-              className="flex-1 py-3 px-2 bg-slate-700 rounded-xl flex-row items-center justify-center gap-1.5"
+              className="min-h-[46px] py-2.5 px-3 bg-slate-100 active:bg-slate-200 rounded-xl flex-row items-center justify-center gap-1"
             >
-              <Forward size={16} color="#ffffff" />
-              <Text className="text-white text-xs font-bold">Pass Request</Text>
+              <Forward size={15} color="#334155" />
+              <Text className="text-slate-700 text-xs font-bold">Pass</Text>
             </Pressable>
 
-            {/* Postpone */}
             <Pressable
               onPress={() => {
                 setPostponeReason(currentTicket.postponeReason || '');
                 setShowPostponeModal(true);
               }}
-              className="py-3 px-3.5 bg-amber-600 rounded-xl flex-row items-center justify-center"
+              className="min-h-[46px] py-2.5 px-3 bg-amber-50 active:bg-amber-100 border border-amber-200 rounded-xl flex-row items-center justify-center"
             >
-              <Clock size={16} color="#ffffff" />
+              <Clock size={15} color="#d97706" />
             </Pressable>
           </View>
         </View>
       )}
 
-      {/* Engineer Status Progression Panel */}
-      <View className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4 shadow-xs">
+      {/* ── LIVE JOB EXECUTION STEPS ─────────────────────────────────── */}
+      <View className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-xs space-y-4">
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center gap-2">
-            <Wrench size={18} color="#059669" />
-            <Text className="text-base font-bold text-slate-900">Job Lifecycle & Stages</Text>
+            <Wrench size={18} color="#007b8a" />
+            <Text className="text-base font-extrabold text-[#0f2930]">Execution Stepper</Text>
           </View>
-          <Text className="text-xs text-slate-500 font-bold">{currentTicket.status}</Text>
-        </View>
-
-        <View className="space-y-3">
-          {/* Step 1: Accept & En Route */}
+          
           <Pressable
-            onPress={() => handleStatusUpdate('EN_ROUTE', 'Engineer accepted call and is en route to site.')}
-            disabled={currentTicket.status === 'EN_ROUTE' || currentTicket.status === 'IN_PROGRESS' || currentTicket.status === 'RESOLVED' || currentTicket.status === 'CLOSED'}
-            className={`p-4 rounded-2xl border ${
-              currentTicket.status === 'EN_ROUTE'
-                ? 'bg-blue-50 border-blue-400'
-                : currentTicket.status === 'IN_PROGRESS' || currentTicket.status === 'RESOLVED' || currentTicket.status === 'CLOSED'
-                ? 'bg-slate-50 border-slate-200 opacity-60'
-                : 'bg-white border-slate-200'
-            }`}
+            onPress={handleRestartLifecycle}
+            className="flex-row items-center gap-1 px-2.5 py-1 bg-slate-100 active:bg-slate-200 rounded-lg"
           >
-            <View className="flex-row items-center justify-between mb-1">
-              <Truck size={20} color="#2563eb" />
-              <Text className="text-[10px] font-bold uppercase text-slate-400">Step 1</Text>
-            </View>
-            <Text className="text-xs font-bold text-slate-900">1. Depart & En Route</Text>
-            <Text className="text-[10px] text-slate-500 mt-0.5">Alert hospital that engineer is traveling</Text>
-          </Pressable>
-
-          {/* Step 2: Arrive & In Progress */}
-          <Pressable
-            onPress={() => handleStatusUpdate('IN_PROGRESS', 'Engineer arrived at OT/CathLab. Diagnostics initiated.')}
-            disabled={currentTicket.status === 'IN_PROGRESS' || currentTicket.status === 'RESOLVED' || currentTicket.status === 'CLOSED'}
-            className={`p-4 rounded-2xl border ${
-              currentTicket.status === 'IN_PROGRESS'
-                ? 'bg-emerald-50 border-emerald-400'
-                : currentTicket.status === 'RESOLVED' || currentTicket.status === 'CLOSED'
-                ? 'bg-slate-50 border-slate-200 opacity-60'
-                : 'bg-white border-slate-200'
-            }`}
-          >
-            <View className="flex-row items-center justify-between mb-1">
-              <Wrench size={20} color="#059669" />
-              <Text className="text-[10px] font-bold uppercase text-slate-400">Step 2</Text>
-            </View>
-            <Text className="text-xs font-bold text-slate-900">2. Arrive & In Progress</Text>
-            <Text className="text-[10px] text-slate-500 mt-0.5">Begin on-site calibration & testing</Text>
-          </Pressable>
-
-          {/* Step 3: Complete Repair (Resolved) */}
-          <Pressable
-            onPress={() => handleStatusUpdate('RESOLVED', 'On-site repair completed. Requesting customer Handover OTP verification.')}
-            disabled={currentTicket.status === 'RESOLVED' || currentTicket.status === 'CLOSED'}
-            className={`p-4 rounded-2xl border ${
-              currentTicket.status === 'RESOLVED'
-                ? 'bg-amber-50 border-amber-400'
-                : currentTicket.status === 'CLOSED'
-                ? 'bg-slate-50 border-slate-200 opacity-60'
-                : 'bg-white border-slate-200'
-            }`}
-          >
-            <View className="flex-row items-center justify-between mb-1">
-              <CheckCircle size={20} color="#d97706" />
-              <Text className="text-[10px] font-bold uppercase text-slate-400">Step 3</Text>
-            </View>
-            <Text className="text-xs font-bold text-slate-900">3. Mark Repair Resolved</Text>
-            <Text className="text-[10px] text-slate-500 mt-0.5">Notify customer to provide 4-digit Handover OTP</Text>
-          </Pressable>
-
-          {/* Step 4: Complete & Close Job */}
-          <Pressable
-            onPress={() => setCurrentScreen('close-job')}
-            disabled={currentTicket.status === 'CLOSED'}
-            className={`p-4 rounded-2xl border ${
-              currentTicket.status === 'CLOSED'
-                ? 'bg-emerald-100 border-emerald-300'
-                : 'bg-emerald-700 border-emerald-800'
-            }`}
-          >
-            <View className="flex-row items-center justify-between mb-1">
-              <FileCheck size={20} color="#ffffff" />
-              <Text className="text-[10px] font-bold uppercase text-emerald-200">Final Step</Text>
-            </View>
-            <Text className="text-xs font-bold text-white">4. Close Job & Sign FSR</Text>
-            <Text className="text-[10px] text-emerald-100 mt-0.5">OTP verification, parts & digital sign</Text>
+            <RotateCcw size={12} color="#007b8a" />
+            <Text className="text-[11px] font-bold text-[#007b8a]">Reset</Text>
           </Pressable>
         </View>
 
-        {/* Live Customer Sync & Diagnostic Updates */}
-        <View className="space-y-3 pt-3 border-t border-slate-100">
-          <View className="flex-row items-center justify-between">
-            <Text className="text-xs font-bold text-slate-900">Customer Live Update Broadcast</Text>
-            <View className="flex-row items-center gap-1">
-              <Radio size={12} color="#059669" />
-              <Text className="text-[10px] font-bold text-emerald-700">Live Sync Active</Text>
+        <View className="space-y-2.5">
+          {/* Step 1: En Route */}
+          <Pressable
+            onPress={() => handleStageClick('EN_ROUTE')}
+            className={`p-3.5 rounded-xl border ${
+              isEnRouteActive
+                ? 'bg-[#e6f4f6] border-[#007b8a]'
+                : isEnRouteCompleted
+                ? 'bg-slate-50 border-emerald-300'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center gap-2.5">
+                <Truck size={16} color={isEnRouteActive ? '#007b8a' : '#64748b'} />
+                <Text className="text-xs font-extrabold text-[#0f2930]">Stage 1: Depart & En Route</Text>
+              </View>
+              <Text className="text-xs font-bold text-[#007b8a]">
+                {isEnRouteActive ? 'In Transit' : isEnRouteCompleted ? '✓' : 'Start →'}
+              </Text>
             </View>
-          </View>
+          </Pressable>
 
-          {/* Quick Preset Notes */}
-          <View className="flex-row gap-1.5 flex-wrap">
-            {quickDiagnosticNotes.map((preset, idx) => (
-              <Pressable
-                key={idx}
-                onPress={() => setNotesInput(preset)}
-                className="px-2.5 py-1.5 bg-slate-100 border border-slate-200 rounded-lg"
-              >
-                <Text className="text-[11px] font-medium text-slate-700">{preset}</Text>
-              </Pressable>
-            ))}
-          </View>
+          {/* Step 2: In Progress */}
+          <Pressable
+            onPress={() => handleStageClick('IN_PROGRESS')}
+            className={`p-3.5 rounded-xl border ${
+              isInProgressActive
+                ? 'bg-emerald-50 border-emerald-500'
+                : isInProgressCompleted
+                ? 'bg-slate-50 border-emerald-300'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center gap-2.5">
+                <Wrench size={16} color={isInProgressActive ? '#059669' : '#64748b'} />
+                <Text className="text-xs font-extrabold text-[#0f2930]">Stage 2: Arrive & Diagnostics</Text>
+              </View>
+              <Text className="text-xs font-bold text-emerald-800">
+                {isInProgressActive ? 'Active' : isInProgressCompleted ? '✓' : 'Arrive →'}
+              </Text>
+            </View>
+          </Pressable>
 
+          {/* Step 3: Repair Resolved */}
+          <Pressable
+            onPress={() => handleStageClick('RESOLVED')}
+            className={`p-3.5 rounded-xl border ${
+              isResolvedActive
+                ? 'bg-amber-50 border-amber-500'
+                : isResolvedCompleted
+                ? 'bg-slate-50 border-emerald-300'
+                : 'bg-white border-slate-200'
+            }`}
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center gap-2.5">
+                <CheckCircle2 size={16} color={isResolvedActive ? '#d97706' : '#64748b'} />
+                <Text className="text-xs font-extrabold text-[#0f2930]">Stage 3: Mark Resolved</Text>
+              </View>
+              <Text className="text-xs font-bold text-amber-900">
+                {isResolvedActive ? 'Awaiting OTP' : isResolvedCompleted ? '✓' : 'Resolve →'}
+              </Text>
+            </View>
+          </Pressable>
+
+          {/* Step 4: Final Sign-off & FSR */}
+          <Pressable
+            onPress={() => handleStageClick('CLOSED')}
+            className="p-3.5 rounded-xl border bg-[#007b8a] active:bg-[#00606b] border-[#007b8a]"
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center gap-2.5">
+                <FileCheck size={16} color="#ffffff" />
+                <Text className="text-xs font-extrabold text-white">Stage 4: Close Job & Sign FSR</Text>
+              </View>
+              <Text className="text-xs font-bold text-white">Proceed →</Text>
+            </View>
+          </Pressable>
+        </View>
+
+        {/* Live Broadcast Panel */}
+        <View className="pt-2 border-t border-slate-100 space-y-2">
+          <Text className="text-[11px] font-bold text-slate-500 uppercase">Send Live Update to Customer</Text>
           <View className="flex-row gap-2">
             <TextInput
               value={notesInput}
               onChangeText={setNotesInput}
-              placeholder="Post diagnostic update to customer..."
-              className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900"
+              placeholder="Type diagnostic update..."
+              className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900"
             />
             <Pressable
-              onPress={() => handleStatusUpdate(currentTicket.status, notesInput)}
-              className="px-4 py-2.5 bg-slate-900 rounded-xl"
+              onPress={() => {
+                if (notesInput.trim()) {
+                  addTicketNote(currentTicket.id, notesInput);
+                  setNotesInput('');
+                }
+              }}
+              className="px-4 py-2 bg-[#007b8a] rounded-xl justify-center"
             >
-              <Text className="text-white text-xs font-bold">Sync</Text>
+              <Text className="text-white text-xs font-bold">Send</Text>
             </Pressable>
           </View>
         </View>
       </View>
-
-      {/* Pass Request Modal */}
-      {showPassModal && (
-        <Modal
-          isOpen={showPassModal}
-          onClose={() => setShowPassModal(false)}
-          title={`Pass Service Request ${currentTicket.ticketNumber}`}
-          subtitle={`${currentTicket.machineModel} • ${currentTicket.customerName}`}
-        >
-          <View className="space-y-4">
-            <View className="p-3 bg-slate-100 border border-slate-300 rounded-xl flex-row items-center gap-2">
-              <Forward size={18} color="#475569" />
-              <Text className="text-xs font-medium text-slate-800 flex-1">
-                Passing will leave this request in the open pool for other field engineers to accept. Admin can assign if no engineer takes it.
-              </Text>
-            </View>
-
-            <View className="space-y-2">
-              <Text className="text-xs font-bold text-slate-700">Select Reason for Passing (Optional)</Text>
-              <View className="flex-row gap-1.5 flex-wrap">
-                {[
-                  'Occupied with active breakdown call',
-                  'Parts not readily available in vehicle',
-                  'Outside current geographical zone',
-                  'Shift ending soon',
-                ].map((reason) => (
-                  <Pressable
-                    key={reason}
-                    onPress={() => setPassReason(reason)}
-                    className={`px-2.5 py-1.5 rounded-lg border ${
-                      passReason === reason
-                        ? 'bg-slate-200 border-slate-500'
-                        : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <Text className="text-xs text-slate-800 font-medium">{reason}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            <View className="space-y-1">
-              <Text className="text-xs font-bold text-slate-700">Custom Notes for Pool</Text>
-              <TextInput
-                value={passReason}
-                onChangeText={setPassReason}
-                placeholder="Optional note for team..."
-                className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900"
-              />
-            </View>
-
-            <View className="pt-3 border-t border-slate-100 flex-row items-center justify-end gap-3">
-              <Pressable onPress={() => setShowPassModal(false)} className="px-4 py-2">
-                <Text className="text-slate-600 text-xs font-bold">Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmPass}
-                className="px-5 py-2.5 bg-slate-800 rounded-xl"
-              >
-                <Text className="text-white text-xs font-bold">Confirm Pass</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
-      )}
-
-      {/* Postpone Request Modal */}
-      {showPostponeModal && (
-        <Modal
-          isOpen={showPostponeModal}
-          onClose={() => setShowPostponeModal(false)}
-          title={`Postpone Request ${currentTicket.ticketNumber}`}
-          subtitle={`${currentTicket.machineModel} • ${currentTicket.customerName}`}
-        >
-          <View className="space-y-4">
-            <View className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex-row items-center gap-2">
-              <Clock size={18} color="#d97706" />
-              <Text className="text-xs font-medium text-amber-900 flex-1">
-                Postponing will update the service timeline and notify hospital management of the delayed window.
-              </Text>
-            </View>
-
-            <View className="space-y-2">
-              <Text className="text-xs font-bold text-slate-700">Select Postponement Reason</Text>
-              <View className="flex-row gap-1.5 flex-wrap">
-                {[
-                  'Awaiting OT / Cath Lab slot access',
-                  'Waiting for spare part arrival',
-                  'Prior critical breakdown extended',
-                  'Customer requested time shift',
-                ].map((reason) => (
-                  <Pressable
-                    key={reason}
-                    onPress={() => setPostponeReason(reason)}
-                    className={`px-2.5 py-1.5 rounded-lg border ${
-                      postponeReason === reason
-                        ? 'bg-amber-100 border-amber-400'
-                        : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <Text className="text-xs text-slate-800 font-medium">{reason}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
-            <View className="space-y-1">
-              <Text className="text-xs font-bold text-slate-700">Rescheduled Target Time</Text>
-              <TextInput
-                value={postponedUntil}
-                onChangeText={setPostponedUntil}
-                placeholder="e.g. Today at 5:00 PM, Tomorrow 9:00 AM"
-                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-bold"
-              />
-            </View>
-
-            <View className="space-y-1">
-              <Text className="text-xs font-bold text-slate-700">Postponement Explanation</Text>
-              <TextInput
-                value={postponeReason}
-                onChangeText={setPostponeReason}
-                placeholder="Describe why call is being postponed..."
-                multiline
-                numberOfLines={3}
-                className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900"
-              />
-            </View>
-
-            <View className="pt-3 border-t border-slate-100 flex-row items-center justify-end gap-3">
-              <Pressable onPress={() => setShowPostponeModal(false)} className="px-4 py-2">
-                <Text className="text-slate-600 text-xs font-bold">Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmPostpone}
-                disabled={!postponeReason.trim()}
-                className={`px-5 py-2.5 rounded-xl ${
-                  postponeReason.trim() ? 'bg-amber-600' : 'bg-slate-300'
-                }`}
-              >
-                <Text className="text-white text-xs font-bold">Confirm Postpone</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
-      )}
     </ScrollView>
   );
 };

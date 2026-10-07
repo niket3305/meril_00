@@ -77,7 +77,7 @@ export const RequestStatusView: React.FC = () => {
 
         <View className="flex-row items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-full border border-emerald-200">
           <Radio size={12} color="#059669" />
-          <Text className="text-[10px] font-bold text-emerald-800">Live Customer Sync</Text>
+          <Text className="text-[10px] font-bold text-emerald-800">Updates in this app</Text>
         </View>
       </View>
 

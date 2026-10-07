@@ -180,7 +180,7 @@ export interface ServiceTicket {
 export interface OfflineAction {
   id: string;
   timestamp: string;
-  type: 'ACCEPT_JOB' | 'PASS_JOB' | 'REJECT_JOB' | 'POSTPONE_JOB' | 'UPDATE_STATUS' | 'CLOSE_JOB';
+  type: 'ACCEPT_JOB' | 'PASS_JOB' | 'REJECT_JOB' | 'POSTPONE_JOB' | 'UPDATE_STATUS' | 'ADD_NOTE' | 'CLOSE_JOB';
   ticketId: string;
   payload: any;
   status: 'PENDING' | 'SYNCED' | 'FAILED';

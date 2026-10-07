@@ -120,6 +120,7 @@ interface AppContextType {
   rejectRequest: (ticketId: string, reason: string) => void;
   postponeRequest: (ticketId: string, reason: string, postponedUntil?: string) => void;
   updateTicketStatus: (ticketId: string, newStatus: TicketStatus, notes?: string) => void;
+  addTicketNote: (ticketId: string, note: string) => void;
   createProductOrder: (payload: {
     ticketId?: string;
     items: ProductOrderItem[];
@@ -172,9 +173,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const storedMachines = await getStoredMachines();
         const storedEngineers = await getStoredEngineers();
         const storedParts = await getStoredParts();
-        const storedTickets = await getStoredTickets();
+        let storedTickets = await getStoredTickets();
         const storedOrders = await getStoredProductOrders();
         const storedQueue = await getStoredOfflineQueue();
+
+        // If stored tickets are outdated or missing demonstration steps, refresh with multi-stage demo set
+        if (!storedTickets || storedTickets.length < 5 || !storedTickets.find((t) => t.id === 'tkt-104')) {
+          storedTickets = INITIAL_TICKETS;
+          saveToStorage('meril_fsm_tickets', INITIAL_TICKETS);
+        }
 
         setCustomers(storedCustomers);
         setMachines(storedMachines);
@@ -263,6 +270,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
           if (action.type === 'ACCEPT_JOB') {
             tkt.status = 'ACCEPTED';
+            tkt.assignedEngineerId = action.payload.engineerId;
+            const acceptedEngineer = engineers.find((engineer) => engineer.id === action.payload.engineerId);
+            if (acceptedEngineer) {
+              tkt.assignedEngineerName = acceptedEngineer.name;
+              tkt.assignedEngineerPhone = acceptedEngineer.phone;
+              tkt.assignedEngineerAvatar = acceptedEngineer.avatar;
+            }
             tkt.timeline = [
               ...tkt.timeline,
               {
@@ -271,10 +285,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 title: 'Request Accepted (Synced)',
                 description: action.payload.notes || 'Accepted offline by engineer.',
                 timestamp: new Date().toISOString(),
-                actorName: 'Rajesh Kumar',
+                actorName: acceptedEngineer?.name || 'Field Service Engineer',
                 actorRole: 'Field Service Engineer',
               },
             ];
+          } else if (action.type === 'PASS_JOB') {
+            const passedEngineerIds = tkt.passedEngineerIds || [];
+            if (!passedEngineerIds.includes(action.payload.engineerId)) {
+              passedEngineerIds.push(action.payload.engineerId);
+            }
+            if (tkt.assignedEngineerId === action.payload.engineerId) {
+              tkt.status = 'RAISED';
+              tkt.assignedEngineerId = undefined;
+              tkt.assignedEngineerName = undefined;
+              tkt.assignedEngineerPhone = undefined;
+              tkt.assignedEngineerAvatar = undefined;
+            }
+            tkt.passedEngineerIds = passedEngineerIds;
+            tkt.timeline = [...tkt.timeline, {
+              id: `tl-sync-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              status: 'PASSED',
+              title: 'Engineer Passed Request (Synced)',
+              description: `Request passed${action.payload.reason ? `: ${action.payload.reason}` : ''}. It remains available in the open pool.`,
+              timestamp: new Date().toISOString(),
+              actorName: engineers.find((engineer) => engineer.id === action.payload.engineerId)?.name || 'Field Service Engineer',
+              actorRole: 'Field Service Engineer',
+            }];
           } else if (action.type === 'REJECT_JOB') {
             tkt.status = 'REJECTED';
             tkt.rejectionReason = action.payload.reason;
@@ -308,6 +344,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ];
           } else if (action.type === 'UPDATE_STATUS') {
             tkt.status = action.payload.status;
+            if (action.payload.status === 'EN_ROUTE' && !tkt.assignedEngineerId) {
+              const assignedEngineer = engineers.find((engineer) => engineer.id === action.payload.engineerId);
+              if (assignedEngineer) {
+                tkt.assignedEngineerId = assignedEngineer.id;
+                tkt.assignedEngineerName = assignedEngineer.name;
+                tkt.assignedEngineerPhone = assignedEngineer.phone;
+                tkt.assignedEngineerAvatar = assignedEngineer.avatar;
+              }
+            }
             tkt.timeline = [
               ...tkt.timeline,
               {
@@ -320,6 +365,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 actorRole: 'Field Service Engineer',
               },
             ];
+          } else if (action.type === 'ADD_NOTE') {
+            tkt.timeline = [...tkt.timeline, {
+              id: `tl-sync-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              status: tkt.status,
+              title: 'Engineer Update',
+              description: action.payload.note,
+              timestamp: new Date().toISOString(),
+              actorName: engineers.find((engineer) => engineer.id === action.payload.engineerId)?.name || 'Field Service Engineer',
+              actorRole: 'Field Service Engineer',
+            }];
           } else if (action.type === 'CLOSE_JOB') {
             tkt.status = 'CLOSED';
             tkt.resolutionNotes = action.payload.resolutionNotes;
@@ -727,6 +782,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateTicketStatus = (ticketId: string, newStatus: TicketStatus, notes?: string) => {
     const now = new Date().toISOString();
+    const ticket = tickets.find((item) => item.id === ticketId);
+    if (!ticket) return;
+
+    const normalizedStatus = ticket.status === 'ASSIGNED' ? 'ACCEPTED' : ticket.status;
+    const nextStatus: Partial<Record<TicketStatus, TicketStatus>> = {
+      RAISED: 'ACCEPTED',
+      ASSIGNED: 'EN_ROUTE',
+      ACCEPTED: 'EN_ROUTE',
+      EN_ROUTE: 'IN_PROGRESS',
+      IN_PROGRESS: 'RESOLVED',
+    };
+    const directDispatchToEnRoute = ticket.status === 'RAISED' && newStatus === 'EN_ROUTE';
+    if (newStatus !== nextStatus[normalizedStatus] && !directDispatchToEnRoute) {
+      addNotification(`Cannot move a ${ticket.status} job to ${newStatus}. Follow the job steps in order.`, 'warning');
+      return;
+    }
 
     if (isOffline) {
       // Offline mode: Queue action and update ticket locally with offline badge
@@ -735,13 +806,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: now,
         type: 'UPDATE_STATUS',
         ticketId,
-        payload: { status: newStatus, notes },
+        payload: { status: newStatus, notes, engineerId: engineers[0]?.id },
         status: 'PENDING',
       };
 
       setOfflineQueue((prev) => [...prev, action]);
       setTickets((prev) =>
-        prev.map((t) => (t.id === ticketId ? { ...t, status: newStatus, isOfflineQueued: true } : t))
+        prev.map((t) => (t.id === ticketId ? {
+          ...t,
+          status: newStatus,
+          ...(directDispatchToEnRoute ? {
+            assignedEngineerId: engineers[0]?.id,
+            assignedEngineerName: engineers[0]?.name,
+            assignedEngineerPhone: engineers[0]?.phone,
+            assignedEngineerAvatar: engineers[0]?.avatar,
+          } : {}),
+          isOfflineQueued: true,
+        } : t))
       );
 
       addNotification(`[Offline] Status updated to "${newStatus}". Queued for sync when online.`, 'warning');
@@ -785,6 +866,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return {
             ...tkt,
             status: newStatus,
+            ...(directDispatchToEnRoute ? {
+              assignedEngineerId: engineers[0]?.id,
+              assignedEngineerName: engineers[0]?.name,
+              assignedEngineerPhone: engineers[0]?.phone,
+              assignedEngineerAvatar: engineers[0]?.avatar,
+            } : {}),
             updatedAt: now,
             timeline: [...tkt.timeline, newTimelineEvent],
           };
@@ -793,7 +880,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    addNotification(`Ticket status updated to ${newStatus}. Synced live with Customer & Admin views.`, 'success');
+    if (directDispatchToEnRoute && engineers[0]) {
+      setEngineers((prev) => prev.map((engineer) => engineer.id === engineers[0].id
+        ? { ...engineer, activeJobsCount: engineer.activeJobsCount + 1 }
+        : engineer));
+    }
+
+    addNotification(`Ticket status updated to ${newStatus}. The customer timeline is updated in this app.`, 'success');
+  };
+
+  const addTicketNote = (ticketId: string, note: string) => {
+    const trimmedNote = note.trim();
+    if (!trimmedNote) return;
+    const now = new Date().toISOString();
+    const engineer = engineers[0];
+
+    if (isOffline) {
+      const action: OfflineAction = {
+        id: `act-note-${Date.now()}`,
+        timestamp: now,
+        type: 'ADD_NOTE',
+        ticketId,
+        payload: { note: trimmedNote, engineerId: engineer?.id },
+        status: 'PENDING',
+      };
+      setOfflineQueue((prev) => [...prev, action]);
+      setTickets((prev) => prev.map((ticket) => ticket.id === ticketId
+        ? { ...ticket, isOfflineQueued: true }
+        : ticket));
+      addNotification('[Offline] Customer update queued for sync when online.', 'warning');
+      return;
+    }
+
+    setTickets((prev) => prev.map((ticket) => ticket.id === ticketId
+      ? {
+          ...ticket,
+          updatedAt: now,
+          timeline: [...ticket.timeline, {
+            id: `tl-note-${Date.now()}`,
+            status: ticket.status,
+            title: 'Engineer Update',
+            description: trimmedNote,
+            timestamp: now,
+            actorName: engineer?.name || 'Field Service Engineer',
+            actorRole: 'Field Service Engineer',
+          }],
+        }
+      : ticket));
+    addNotification('Customer update added to the service timeline.', 'success');
   };
 
   const createProductOrder = (payload: {
@@ -1214,6 +1348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         rejectRequest,
         postponeRequest,
         updateTicketStatus,
+        addTicketNote,
         createProductOrder,
         updateProductOrderStatus,
         closeJob,

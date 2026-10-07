@@ -26,7 +26,7 @@ export const BottomNav: React.FC = () => {
     ];
 
     return (
-      <View className="bg-white border-t border-slate-200 px-2 py-2 flex-row items-center justify-around shadow-sm">
+      <View className="bg-white border-t border-slate-200 px-3 py-2 flex-row items-center justify-around shadow-xs">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = currentScreen === tab.id;
@@ -34,8 +34,8 @@ export const BottomNav: React.FC = () => {
             <Pressable
               key={tab.id}
               onPress={() => setCurrentScreen(tab.id)}
-              className={`flex-1 items-center py-1.5 px-1 rounded-xl ${
-                isActive ? 'bg-blue-50' : ''
+              className={`flex-1 items-center py-2 px-1 rounded-xl ${
+                isActive ? 'bg-blue-50/80' : ''
               }`}
             >
               <View className="relative">
@@ -47,8 +47,8 @@ export const BottomNav: React.FC = () => {
                 )}
               </View>
               <Text
-                className={`text-[11px] font-bold mt-1 ${
-                  isActive ? 'text-blue-900' : 'text-slate-500'
+                className={`text-xs font-semibold mt-1 ${
+                  isActive ? 'text-blue-900 font-bold' : 'text-slate-500'
                 }`}
               >
                 {tab.label}
@@ -68,7 +68,7 @@ export const BottomNav: React.FC = () => {
     ];
 
     return (
-      <View className="bg-white border-t border-slate-200 px-2 py-2 flex-row items-center justify-around shadow-sm">
+      <View className="bg-white border-t border-slate-200 px-3 py-2 flex-row items-center justify-around shadow-xs">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = currentScreen === tab.id;
@@ -76,14 +76,14 @@ export const BottomNav: React.FC = () => {
             <Pressable
               key={tab.id}
               onPress={() => setCurrentScreen(tab.id)}
-              className={`flex-1 items-center py-1.5 px-1 rounded-xl ${
-                isActive ? 'bg-emerald-50' : ''
+              className={`flex-1 items-center py-2 px-1 rounded-xl ${
+                isActive ? 'bg-emerald-50/80' : ''
               }`}
             >
               <Icon size={20} color={isActive ? '#059669' : '#64748b'} />
               <Text
-                className={`text-[11px] font-bold mt-1 ${
-                  isActive ? 'text-emerald-900' : 'text-slate-500'
+                className={`text-xs font-semibold mt-1 ${
+                  isActive ? 'text-emerald-900 font-bold' : 'text-slate-500'
                 }`}
               >
                 {tab.label}
@@ -103,21 +103,21 @@ export const BottomNav: React.FC = () => {
     ];
 
     return (
-      <View className="bg-white border-t border-slate-200 px-2 py-2 flex-row items-center justify-around shadow-sm">
+      <View className="bg-white border-t border-slate-200/80 px-4 py-2 flex-row items-center justify-around shadow-xs">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <Pressable
               key={tab.id}
               onPress={() => setCurrentScreen(tab.id)}
-              className={`flex-1 items-center py-1.5 px-1 rounded-xl ${
-                tab.isActive ? 'bg-amber-50' : ''
+              className={`flex-1 items-center py-2 px-2 rounded-xl flex-row justify-center gap-2 ${
+                tab.isActive ? 'bg-[#e6f4f6]' : ''
               }`}
             >
-              <Icon size={20} color={tab.isActive ? '#d97706' : '#64748b'} />
+              <Icon size={18} color={tab.isActive ? '#007b8a' : '#64748b'} />
               <Text
-                className={`text-[11px] font-bold mt-1 ${
-                  tab.isActive ? 'text-amber-900' : 'text-slate-500'
+                className={`text-xs ${
+                  tab.isActive ? 'text-[#007b8a] font-black' : 'text-slate-500 font-semibold'
                 }`}
               >
                 {tab.label}
